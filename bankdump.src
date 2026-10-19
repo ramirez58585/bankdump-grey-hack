@@ -1,0 +1,129 @@
+banner = []
+banner.push(" ___  ___ ___ ___ ___ ___ ___ _  _  ___ ")
+banner.push("/ _ \\| __| __/ __| _ \\ _ \\_ _| \\| |/ __|")
+banner.push("| (_) | _|| _|\\__ \\  _/   /| || .` | (_ |")
+banner.push("\\___/|_| |_| |___/_| |_|_\\___|_|\\_|\\___|")
+ 
+colors = ["#2b2b2b", "#0a4a0a", "#1f9e1f", "#55ff55", "#1f9e1f", "#0a4a0a"]
+i = 0
+while i < 6
+    clear_screen
+    c = colors[i % colors.len]
+    print("")
+    for line in banner
+        print("<color=" + c + ">" + line + "</color>")
+    end for
+    print("")
+    print("<color=#777777>        the offspring // dump decipher</color>")
+    wait(0.33)
+    i = i + 1
+end while
+clear_screen
+print("")
+for line in banner
+    print("<color=#55ff55>" + line + "</color>")
+end for
+print("")
+ 
+// ---- arguments ----
+if params.len < 1 then exit("<color=red>Usage: decipher_dump <input_file> [output_file]</color>")
+ 
+inPath = params[0]
+// default output: bank_dump.txt in the same folder as the input
+slashIn = inPath.lastIndexOf("/")
+if slashIn == null or slashIn < 0 then
+    outPath = "bank_dump.txt"
+else
+    outPath = inPath[:slashIn + 1] + "bank_dump.txt"
+end if
+if params.len > 1 then outPath = params[1]
+ 
+crypto = include_lib("/lib/crypto.so")
+if not crypto then crypto = include_lib(current_path + "/crypto.so")
+if not crypto then exit("<color=red>crypto.so not found</color>")
+ 
+comp = get_shell.host_computer
+inFile = comp.File(inPath)
+if inFile == null then exit("<color=red>Input file not found: " + inPath + "</color>")
+if inFile.is_folder then exit("<color=red>" + inPath + " is a folder</color>")
+if not inFile.has_permission("r") then exit("<color=red>No read permission on " + inPath + "</color>")
+ 
+content = inFile.get_content
+if content == null then exit("<color=red>Could not read the file</color>")
+ 
+lines = content.split(char(10))
+ 
+// cache: each hash is only deciphered once
+cache = {}
+result = []
+total = 0
+ok = 0
+ 
+print("<color=yellow>Deciphering " + lines.len + " line(s)...</color>")
+print("")
+ 
+for line in lines
+    raw = line
+    trimmed = line.trim
+    sep = trimmed.indexOf(":")
+ 
+    if trimmed == "" then
+        result.push(raw)        // keep empty lines
+    else if sep == null then
+        result.push(raw)        // keep address / header lines as-is
+    else
+        total = total + 1
+        user = trimmed[:sep]
+        hash = trimmed[sep + 1:].trim
+ 
+        plain = null
+        if cache.hasIndex(hash) then
+            plain = cache[hash]
+        else
+            plain = crypto.decipher(hash)
+            cache[hash] = plain
+        end if
+ 
+        if plain == null then
+            result.push(user + ":" + "[FAILED] " + hash)
+            print("<color=#aaaaaa>" + user + " -> not found (" + hash + ")</color>")
+        else
+            ok = ok + 1
+            result.push(user + ":" + plain)
+            print("<color=#55ff55>" + user + " -> " + plain + "</color>")
+        end if
+    end if
+end for
+ 
+output = result.join(char(10))
+ 
+// resolve parent folder + file name (handle relative paths)
+slash = outPath.lastIndexOf("/")
+if slash == null or slash < 0 then
+    parent = current_path
+    fname = outPath
+else if slash == 0 then
+    parent = "/"
+    fname = outPath[1:]
+else
+    parent = outPath[:slash]
+    fname = outPath[slash + 1:]
+end if
+absOut = parent
+if parent[parent.len - 1] != "/" then absOut = parent + "/"
+absOut = absOut + fname
+ 
+outFile = comp.File(absOut)
+if outFile == null then
+    creation = comp.touch(parent, fname)
+    if typeof(creation) == "string" then exit("<color=red>Cannot create output in " + parent + ": " + creation + "</color>")
+    outFile = comp.File(absOut)
+end if
+ 
+if outFile == null then exit("<color=red>Output file not accessible</color>")
+writeRes = outFile.set_content(output)
+if typeof(writeRes) == "string" then exit("<color=red>Cannot write output: " + writeRes + "</color>")
+ 
+print("")
+print("<color=yellow>Done: " + ok + "/" + total + " hashes resolved.</color>")
+print("Output: " + absOut)
